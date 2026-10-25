@@ -65,10 +65,9 @@ if (empty($_SESSION['csrf_token'])) {
 }
 
 // Classes
-/*include($_SESSION[SITE]['ROOT']."includes/classes/class-date-time.php");
+include($_SESSION[SITE]['ROOT']."includes/classes/class-date-time.php");
 include($_SESSION[SITE]['ROOT']."includes/classes/class-string.php");
-
-include($_SESSION[SITE]['ROOT']."includes/files/functions.php");*/
+include($_SESSION[SITE]['ROOT']."includes/files/functions.php");
 
 ini_set( 'date.timezone', 'Asia/Kolkata');
 date_default_timezone_set('Asia/Kolkata');

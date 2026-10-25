@@ -1,6 +1,6 @@
 <?php
 include('../config/config.php');
-
+header('Content-Type: application/json; charset=UTF-8');
 $success = false;
 $message='Something went wrong. Please try later.';
 $error_count=0;

@@ -288,9 +288,39 @@ elseif($action === 'reply') {
 		echo jsonResponse(false, 'This ticket is closed. Reopen before replying.');
 	}
 	
+	 /*
+     * Get the customer's email for public reply notifications.
+     * Internal notes do not need a recipient lookup.
+     */
+    $recipientEmail = '';
+	if ($isInternal === 0) {
+
+        $customerQry = "SELECT c.email
+                        FROM $_SESSION[SITE]['DBPF'].'customers' c
+                        INNER JOIN $ticketTable t ON t.customer_id = c.customer_id AND t.tenant_id = c.tenant_id
+                        WHERE t.ticket_id = ? AND t.tenant_id = ? LIMIT 1";
+
+        $stmt = mysqli_prepare($conn, $customerQry);
+        mysqli_stmt_bind_param($stmt, 'ii', $ticket_id, $tenantId);
+        mysqli_stmt_execute($stmt);
+
+        $customerResult = mysqli_stmt_get_result($stmt);
+        $customer = mysqli_fetch_assoc($customerResult);
+
+        mysqli_stmt_close($stmt);
+
+        if (!$customer || !filter_var($customer['email'],FILTER_VALIDATE_EMAIL)) {
+            echo jsonResponse(false,'The customer email address is missing or invalid.');
+            exit;
+        }
+
+        $recipientEmail = $customer['email'];
+    }
+
+	
 	try{
 		mysqli_begin_transaction($conn);
-		//insert into ticket_messages
+		//insert reply into ticket_messages
 		$senderType = 'agent';
 		$insertQry 	= "INSERT INTO $messageTable (`tenant_id`, `ticket_id`, `sender_type`, `sender_id`, `message`, `is_internal`) 
 						VALUES (".$tenantId.",".$ticket_id.",'".$senderType."',".$userId.",'".$replyMessage."',".$isInternal.")";
@@ -303,6 +333,26 @@ elseif($action === 'reply') {
 		$eventQry 	= "INSERT INTO $eventTable (`tenant_id`, `ticket_id`, `actor_user_id`, `event_type`, `event_details`) 
 						VALUES (".$tenantId.",".$ticket_id.",".$userId.",'".$event_type."','".$event_details."')";
 		$result 	= mysqli_query($conn,$eventQry);
+		
+		 /*
+         * Queue an email only for a public reply.
+         * This does not send the email immediately.
+         */
+        if($isInternal === 0) 
+		{
+			$ticketSubject = isset($ticket['subject']) ? trim((string)$ticket['subject']) : '';
+
+            if ($ticketSubject === '') {
+                $ticketSubject = 'Ticket #' . $ticket_id;
+            }
+
+            $emailSubject = 'Re: ' . $ticketSubject;
+            $queued = queueCustomerReplyEmail($conn,$tenantId,$ticket_id,$messageId,$recipientEmail,$emailSubject);
+
+            if (!$queued) {
+                throw new RuntimeException('Unable to add the customer email to the queue.');
+            }
+		}
 		
 		mysqli_commit($conn);
 		

@@ -118,7 +118,8 @@ $query = "SELECT
               t.priority,
               t.preferred_language,
               t.status,
-              c.name AS customer_name
+              c.name AS customer_name,
+			  c.email
           FROM $ticketTable AS t
           INNER JOIN $customerTable AS c
               ON c.tenant_id = t.tenant_id AND c.customer_id = t.customer_id
@@ -253,7 +254,11 @@ if ($action === 'send') {
 	if($draft_id<=0){
 		aiJsonResponse(false, 'Invalid draft Id.',[],400);
 	}
-
+	 /*
+     * Get the customer's email for public reply notifications.
+     * Internal notes do not need a recipient lookup.
+     */
+    
     try {
 
         mysqli_begin_transaction($conn);
@@ -285,7 +290,14 @@ if ($action === 'send') {
         if ($replyText === '') {
             throw new RuntimeException('The reply cannot be empty.');
         }
-
+		/*
+         * Retrieve customer's email.
+         * 
+         */
+		if (!$ticket || !filter_var($ticket['email'],FILTER_VALIDATE_EMAIL)) {
+            aiJsonResponse(false,'The customer email address is missing or invalid.');
+        }
+		
         // Save as a public agent message.
         $query = "INSERT INTO $messageTable (tenant_id, ticket_id, sender_type,sender_id, message, is_internal)
                   VALUES (?, ?, 'agent', ?, ?, 0)";
@@ -294,7 +306,21 @@ if ($action === 'send') {
         mysqli_stmt_execute($stmt);
         $messageId = (int)mysqli_insert_id($conn);
         mysqli_stmt_close($stmt);
-
+		
+		/*
+         * Queue the customer email.
+         * This does not send the email immediately.
+         */
+		$ticketSubject	= isset($ticket['subject']) ? trim((string)$ticket['subject']) : '';
+        if ($ticketSubject === '') {
+            $ticketSubject = 'Ticket #' . $ticket_id;
+        }
+        $emailSubject = 'Re: ' . $ticketSubject;
+        $queued = queueCustomerReplyEmail($conn,$tenantId,$ticket_id,$messageId,$ticket['email'],$emailSubject);
+        if (!$queued) {
+            throw new RuntimeException('Unable to queue the customer email.');
+        }
+		
         // Record that the draft has been sent.
         $query = "UPDATE $draftTable SET sent_at = NOW()
                   WHERE draft_id = ? AND tenant_id = ? AND ticket_id = ? AND sent_at IS NULL";
@@ -314,7 +340,7 @@ if ($action === 'send') {
 
         mysqli_commit($conn);
 
-        aiJsonResponse(true,'Reply added to the ticket conversation.',['draft_id' => $draft_id,'message_id' => $messageId,'sent_at' => date('Y-m-d H:i:s')]);
+        aiJsonResponse(true,'Reply added to the ticket conversation. Customer email queued.',['draft_id' => $draft_id,'message_id' => $messageId, 'email_queued' => true, 'sent_at' => date('Y-m-d H:i:s')]);
 
     } 
 	catch (Throwable $e) {

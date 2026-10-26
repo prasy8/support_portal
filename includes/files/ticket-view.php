@@ -511,9 +511,7 @@ async function aiDraftRequest(action, extraData = {}) {
     const result = await response.json();
 	console.log(result);
     if (!response.ok || !result.success) {
-        throw new Error(
-            result.message || "AI request failed."
-        );
+        throw new Error(result.message || "AI request failed.");
     }
 
     return result;
@@ -577,6 +575,7 @@ function renderAIDrafts(drafts) {
 
                 <div class="ai-draft-text" style="white-space:normal; overflow-wrap:anywhere;">${formattedText}</div>
                 ${reviewButtons}
+				${['approved', 'edited'].includes(draft.status) && !draft.sent_at ? `<button type="button" class="btn btn-success btn-sm" data-send-draft="${draft.draft_id}">Send Reply</button` : ''}
             </div>
         `;
 
@@ -585,9 +584,7 @@ function renderAIDrafts(drafts) {
 
 
 /* Generate a new draft */
-generateAIDraftButton.addEventListener(
-    "click",
-    async function() {
+generateAIDraftButton.addEventListener("click",async function() {
 
         generateAIDraftButton.disabled = true;
         generateAIDraftButton.textContent = "Generating...";
@@ -611,9 +608,7 @@ generateAIDraftButton.addEventListener(
 
 
 /* Approve, edit, or reject a draft */
-aiDraftContainer.addEventListener(
-    "click",
-    async function(event) {
+aiDraftContainer.addEventListener("click", async function(event) {
         const button = event.target.closest("[data-review]");
         if (!button) {
             return;
@@ -669,7 +664,41 @@ aiDraftContainer.addEventListener(
     }
 );
 
+/* send draft */
+aiDraftContainer.addEventListener("click", async function(event) {
+		//alert("send btn clicked");
+        const button = event.target.closest("[data-send-draft]");
+        if (!button) {
+            return;
+        }
+        const draftId = Number(button.dataset.sendDraft);
 
+        if (!confirm('Send this response as a public ticket reply?')) {
+            return;
+        }
+
+        button.disabled = true;
+
+        try {
+            const data = await aiDraftRequest('send', {draft_id: draftId});
+            aiShowMessage(data.message, !data.success);
+            if (data.success) {
+                await loadAIDrafts();
+                // Reload the ticket conversation function that loads its messages.
+                //await loadTicketMessages();
+				window.location.reload();
+            }
+        } 
+		catch (error) {
+            console.error(error);
+            aiShowMessage('Unable to send the reply.', true);
+        } 
+		finally {
+            button.disabled = false;
+        }
+    }
+);
+	
 /* Load drafts when the page opens */
 loadAIDrafts();
 </script>

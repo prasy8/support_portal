@@ -139,9 +139,9 @@ if (!$ticket) {
 // ========================================
 if ($action === 'list') {
 	
-   $query = "SELECT draft_id,draft_text,model_name,status,reviewed_by,created_at
+   $query = "SELECT draft_id,draft_text,model_name,status,reviewed_by,created_at,sent_at
               FROM $draftTable
-              WHERE tenant_id = ? AND ticket_id = ? ORDER BY draft_id DESC LIMIT 10";
+              WHERE tenant_id = ? AND ticket_id = ? AND sent_at IS NULL AND status != 'rejected' ORDER BY draft_id DESC LIMIT 10";
    $stmt = mysqli_prepare($conn, $query);
    mysqli_stmt_bind_param($stmt,'ii',$tenantId,$ticket_id);
    mysqli_stmt_execute($stmt);
@@ -242,6 +242,86 @@ if($action === 'review') {
     }
 
 	
+}
+/*
+|--------------------------------------------------------------------------
+| Send an approved AI draft as a public ticket reply
+|--------------------------------------------------------------------------
+*/
+if ($action === 'send') {
+	$draft_id	= isset($input['draft_id']) ? (int)$input['draft_id'] : 0;
+	if($draft_id<=0){
+		aiJsonResponse(false, 'Invalid draft Id.',[],400);
+	}
+
+    try {
+
+        mysqli_begin_transaction($conn);
+
+        // Lock the draft while processing it.
+        $query = "SELECT draft_id, draft_text, status, sent_at FROM $draftTable
+                  WHERE draft_id = ? AND tenant_id = ? AND ticket_id = ? LIMIT 1 FOR UPDATE";
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt,'iii',$draft_id,$tenantId,$ticket_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $draft = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+
+        if (!$draft) {
+            throw new RuntimeException('Draft not found.');
+        }
+
+        if (!empty($draft['sent_at'])) {
+            throw new RuntimeException('This draft has already been sent.');
+        }
+
+        if (!in_array($draft['status'],['approved', 'edited'],true)) {
+            throw new RuntimeException('Approve or edit the draft before sending.');
+        }
+
+        $replyText = trim($draft['draft_text']);
+
+        if ($replyText === '') {
+            throw new RuntimeException('The reply cannot be empty.');
+        }
+
+        // Save as a public agent message.
+        $query = "INSERT INTO $messageTable (tenant_id, ticket_id, sender_type,sender_id, message, is_internal)
+                  VALUES (?, ?, 'agent', ?, ?, 0)";
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt,'iiis',$tenantId,$ticket_id,$userId,$replyText);
+        mysqli_stmt_execute($stmt);
+        $messageId = (int)mysqli_insert_id($conn);
+        mysqli_stmt_close($stmt);
+
+        // Record that the draft has been sent.
+        $query = "UPDATE $draftTable SET sent_at = NOW()
+                  WHERE draft_id = ? AND tenant_id = ? AND ticket_id = ? AND sent_at IS NULL";
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt,'iii',$draft_id,$tenantId,$ticket_id);
+        mysqli_stmt_execute($stmt);
+
+        if (mysqli_stmt_affected_rows($stmt) !== 1) {
+            throw new RuntimeException('Unable to mark the draft as sent.');
+        }
+        mysqli_stmt_close($stmt);
+
+        // Record the audit event.
+		$eventType 		= 'ai_draft_sent';
+		$event_details 	= ['draft_id' => $draft_id, 'message_id' => $messageId];	
+		aiRecordEvent($conn,$eventTable,$tenantId,$ticket_id,$userId,$eventType,$event_details);
+
+        mysqli_commit($conn);
+
+        aiJsonResponse(true,'Reply added to the ticket conversation.',['draft_id' => $draft_id,'message_id' => $messageId,'sent_at' => date('Y-m-d H:i:s')]);
+
+    } 
+	catch (Throwable $e) {
+        mysqli_rollback($conn);
+        error_log('AI draft send error: ' . $e->getMessage());
+        aiJsonResponse(false,'Unable to send the reply. Check the server error log.',[],500);
+    }
 }
 /*
 |--------------------------------------------------------------------------

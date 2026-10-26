@@ -299,7 +299,6 @@ elseif($action === 'reply') {
 		
 		//get msgID and insert into ticket_events (ticket history)
 		$event_type	= $isInternal ? 'internal_note_added' : 'agent_reply_added';
-
 		$event_details = json_encode(['msg_id' => $messageId, 'created_by' => $userId]);
 		$eventQry 	= "INSERT INTO $eventTable (`tenant_id`, `ticket_id`, `actor_user_id`, `event_type`, `event_details`) 
 						VALUES (".$tenantId.",".$ticket_id.",".$userId.",'".$event_type."','".$event_details."')";

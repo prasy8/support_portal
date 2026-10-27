@@ -1,0 +1,12 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# PHP configuration containing passwords
+ai-config.php
+config.php
+smtp-config.php
+
+# Logs and temporary files
+*.log

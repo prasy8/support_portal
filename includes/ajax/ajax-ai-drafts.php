@@ -1,7 +1,10 @@
 <?php
 include('../config/config.php');
-include('../config/ai-config.php');
+//include('../config/ai-config.php');
+include('../config/openai-service.php');
 header('Content-Type: application/json; charset=UTF-8');
+
+
 /*
 |--------------------------------------------------------------------------
 | Audit event helper- MAINTAIN LOG
@@ -355,7 +358,7 @@ if ($action === 'send') {
 |--------------------------------------------------------------------------
 */
 if($action === 'generate'){
-	if(empty($AI_API_URL) || empty($AI_MODEL)) 
+/*	if(empty($AI_API_URL) || empty($AI_MODEL)) 
 	{
 		aiJsonResponse(false,'AI service configuration is incomplete.',[],500);
 	}
@@ -363,7 +366,7 @@ if($action === 'generate'){
 	if(!function_exists('curl_init')) 
 	{
 		aiJsonResponse(false,'The PHP cURL extension is required for AI generation.',[],500);
-	}
+	}*/
 
 	$jobId = 0;
 	
@@ -450,7 +453,10 @@ if($action === 'generate'){
 					7. Do not include internal notes in the customer-facing response.
 					8. Use a professional, helpful tone.
 					9. Write the response in the requested language.
-					10. Return only the proposed customer-facing reply.";
+					10.Return only the proposed customer-facing reply.
+					11.Write clear, polite, helpful, and concise responses.
+            		12.Use only the information provided.
+            		13.Never invent company policies, prices, refunds, or commitments.";
 
 		$language = trim((string)$ticket['preferred_language']);
 
@@ -476,62 +482,19 @@ if($action === 'generate'){
 		/*
 		 * Call the private OpenAI-compatible endpoint.
 		 */
-		$requestBody = [
-			'model' => $AI_MODEL,
-			'messages' => [
-				[
-					'role' => 'system',
-					'content' => $systemPrompt
-				],
-				[
-					'role' => 'user',
-					'content' => $userPrompt
-				]
-			],
-			'temperature' => 0.2,
-			'stream' => false
-		];
-
-		$headers = ['Content-Type: application/json','Accept: application/json'];
-
-		if (!empty($AI_API_KEY)) {
-			$headers[] = 'Authorization: Bearer ' . $AI_API_KEY;
-		}
-
-    	$curl = curl_init($AI_API_URL);
-
-		curl_setopt_array($curl, [
-			CURLOPT_POST => true,
-			CURLOPT_RETURNTRANSFER => true,
-			CURLOPT_HTTPHEADER => $headers,
-			CURLOPT_POSTFIELDS => json_encode($requestBody),
-			CURLOPT_CONNECTTIMEOUT => (int)$AI_CONNECT_TIMEOUT,
-			CURLOPT_TIMEOUT => (int)$AI_TIMEOUT
-		]);
-
-		$apiResponse = curl_exec($curl);
-		$curlError = curl_error($curl);
-		$httpCode = (int)curl_getinfo($curl,CURLINFO_HTTP_CODE);
-		curl_close($curl);
-
-		if ($apiResponse === false || $curlError !== '') {
-			throw new RuntimeException('AI service connection failed: ' . $curlError);
-		}
-
-		if ($httpCode < 200 || $httpCode >= 300) {
-			throw new RuntimeException('AI service returned HTTP ' . $httpCode);
-		}
-
-    	$decodedResponse = json_decode($apiResponse,true);
-
-		$draftText = isset($decodedResponse['choices'][0]['message']['content']) ? trim((string)$decodedResponse['choices'][0]['message']['content']) : '';
-
-        if($draftText === '' || mb_strlen($draftText) > 20000) 
+		
+		//Generate draft using Ollama-AI.
+		$aiResult = generateOllamaAIResponse($systemPrompt,$userPrompt);
+		
+		//Generate draft using OpenAI.
+		//$aiResult = generateOpenAIResponse($systemPrompt,$userPrompt);
+		
+		$draftText = trim((string)$aiResult['text']);
+		if($draftText === '' || mb_strlen($draftText) > 20000) 
 		{
             aiJsonResponse(false,'AI service returned an invalid draft.');
         }
-		
-		$modelName = isset($decodedResponse['model']) ? trim((string)$decodedResponse['model']) : $AI_MODEL;
+		$modelName = trim((string)$aiResult['model']);
 
 		/*
 		 * Save the draft and audit event together.

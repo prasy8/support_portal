@@ -6,6 +6,7 @@
 # PHP configuration containing passwords
 ai-config.php
 config.php
+openai-config.php
 smtp-config.php
 
 # Logs and temporary files

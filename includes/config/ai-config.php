@@ -19,5 +19,12 @@ $AI_API_KEY = '';
 
 $AI_CONNECT_TIMEOUT = 5;
 $AI_TIMEOUT = 90;
-
+return [
+    'api_url' => 'http://127.0.0.1:11434/v1/chat/completions',
+    'api_key' => '',
+    'model'   => 'qwen2.5:7b',
+    'connect_timeout' => 5,
+    'timeout'   => 90
+	
+];
 ?>
